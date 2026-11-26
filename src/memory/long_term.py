@@ -410,10 +410,7 @@ class LongTermMemory:
                 conn.close()
 
     def update_conflict_resolution(
-        self,
-        conflict_id: str,
-        status: str,
-        resolution: Optional[str] = None,
+        self, conflict_id: str, status: str, resolution: Optional[str] = None
     ) -> bool:
         """更新矛盾记录的状态和消解结果。"""
         with self._lock:
@@ -445,7 +442,9 @@ class LongTermMemory:
             finally:
                 conn.close()
 
-    def get_lowest_score_entries(self, limit: int, session_id: Optional[str] = None) -> list[tuple[str, float]]:
+    def get_lowest_score_entries(
+            self, limit: int, session_id: Optional[str] = None
+        ) -> list[tuple[str, float]]:
         """
         按综合评分升序返回最低分的 entries，用于淘汰。
 

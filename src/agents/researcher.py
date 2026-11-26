@@ -70,7 +70,7 @@ class ResearcherAgent(BaseAgent):
         # 查询可行性判断：如果任务明显无法通过网络搜索获得答案，直接基于已知信息分析
         if self._is_non_searchable(task, context):
             messages = [
-                {"role": "system", "content": self._system_prompt_direct_analysis()},
+                {"role": "system", "content": self.SYSTEM_PROMPT_DIRECT_ANALYSIS},
                 {"role": "user", "content": task_desc},
             ]
             try:
@@ -95,7 +95,7 @@ class ResearcherAgent(BaseAgent):
                 )
 
         messages = [
-            {"role": "system", "content": self._system_prompt()},
+            {"role": "system", "content": self.SYSTEM_PROMPT},
             {"role": "user", "content": task_desc},
         ]
 
@@ -106,8 +106,7 @@ class ResearcherAgent(BaseAgent):
 
         # 根据任务类型确定 fallback 工具
         desc_lower = (task.description or "").lower()
-        academic_keywords = ["论文", "paper", "publication", "学术", "arxiv", "neurips", "icml", "iclr", "scholar", "citation", "文献"]
-        fallback_tool = "arxiv_reader" if any(kw in desc_lower for kw in academic_keywords) else "web_search"
+        fallback_tool = ("arxiv_reader" if any(kw in desc_lower for kw in self.ACADEMIC_KEYWORDS) else "web_search")
         
         for turn in range(self.max_turns):
             # Fallback: if last turn had no tool_calls, force a search instruction
@@ -269,49 +268,9 @@ class ResearcherAgent(BaseAgent):
             confidence=0.0,
         )
 
-    def _system_prompt(self) -> str:
-        return (
-            "You are a meticulous research assistant. "
-            "Your job is to gather and analyze information using the RIGHT tool for each task. "
-            "\n\nAVAILABLE TOOLS:\n"
-            "- web_search: General web search for news, market data, industry reports, current events. "
-            "  Use this as the FIRST tool for most tasks.\n"
-            "- arxiv_reader: Academic paper search (ArXiv / Semantic Scholar). "
-            "  USE when the task involves: papers, publications, academic research, citation counts.\n"
-            "- browser: Open a URL and extract full webpage text. "
-            "  USE after web_search when search results are too short and you need to read the original article in depth.\n"
-            "- code_sandbox: Execute Python code for calculations, data processing, simulations. "
-            "  USE when the task requires: computing FLOPs, memory usage, statistical analysis, data transformation.\n"
-            "- calculator: Quick math evaluation (+, -, *, /, sqrt, log, mean, etc.). "
-            "  USE for simple calculations instead of code_sandbox.\n"
-            "- notepad: Write/read intermediate notes to avoid forgetting findings during multi-step research. "
-            "  USE to record key numbers, conclusions, or next search queries.\n"
-            "- file_reader: Read local files (.txt, .md, .pdf, .csv, .json, .docx). "
-            "  USE only when the task explicitly references a local file path.\n"
-            "\nIMPORTANT RULES:\n"
-            "1. You MUST use a tool to find factual information. Do NOT answer from your own knowledge.\n"
-            "2. Choose the RIGHT tool based on the task type. You can use MULTIPLE tools in sequence.\n"
-            "3. For most research tasks, START with web_search or arxiv_reader.\n"
-            "4. If search results are too short, use browser to read the full article.\n"
-            "5. If the task involves numbers/calculations, use calculator or code_sandbox.\n"
-            "6. You may call tools AT MOST 2 times total. After that you MUST summarize.\n"
-            "7. Only after gathering information, provide a concise summary with a confidence score (0-1).\n"
-            "8. NEVER greet the user or ask what they want to search — just execute immediately.\n"
-            "9. If you have already performed 2 tool calls, do NOT call more — write the final summary now."
-        )
-
-    def _system_prompt_direct_analysis(self) -> str:
-        return (
-            "You are a thoughtful analyst. "
-            "The user has asked a question that cannot be answered by web search "
-            "(e.g., analyzing a specific private individual, personal advice, or subjective judgment). "
-            "Your job is to provide a reasoned analysis based ONLY on the information already provided in the context. "
-            "Do NOT make up facts. Clearly state what is known, what can be reasonably inferred, and what remains unknown. "
-            "End with a confidence score (0-1)."
-        )
-
     def _is_non_searchable(self, task: SubTask, context: dict) -> bool:
         """启发式判断任务是否无法通过网络搜索获取答案。"""
+        """神, 就是简单的词语匹配吗? 这种真的能比较完善的匹配上所有情况吗? 如果用户直接换一种语言提问呢?"""
         desc = (task.description or "").lower()
         query = context.get("query", "").lower()
         combined = desc + " " + query
@@ -340,8 +299,7 @@ class ResearcherAgent(BaseAgent):
         tool_recommendations = []
         
         # 学术论文类
-        academic_keywords = ["论文", "paper", "publication", "学术", "arxiv", "neurips", "icml", "iclr", "scholar", "citation", "文献"]
-        if any(kw in desc_lower for kw in academic_keywords):
+        if any(kw in desc_lower for kw in self.ACADEMIC_KEYWORDS):
             tool_recommendations.append("arxiv_reader")
         
         # 计算/数学类
@@ -453,3 +411,46 @@ class ResearcherAgent(BaseAgent):
                     continue
         # 默认中等置信度
         return 0.6
+
+    ACADEMIC_KEYWORDS = (
+        "论文", "paper", "publication", "学术", "arxiv", "neurips", "icml", "iclr", "scholar", "citation", "文献",
+    )
+
+    SYSTEM_PROMPT = (
+        "You are a meticulous research assistant. "
+        "Your job is to gather and analyze information using the RIGHT tool for each task. "
+        "\n\nAVAILABLE TOOLS:\n"
+        "- web_search: General web search for news, market data, industry reports, current events. "
+        "  Use this as the FIRST tool for most tasks.\n"
+        "- arxiv_reader: Academic paper search (ArXiv / Semantic Scholar). "
+        "  USE when the task involves: papers, publications, academic research, citation counts.\n"
+        "- browser: Open a URL and extract full webpage text. "
+        "  USE after web_search when search results are too short and you need to read the original article in depth.\n"
+        "- code_sandbox: Execute Python code for calculations, data processing, simulations. "
+        "  USE when the task requires: computing FLOPs, memory usage, statistical analysis, data transformation.\n"
+        "- calculator: Quick math evaluation (+, -, *, /, sqrt, log, mean, etc.). "
+        "  USE for simple calculations instead of code_sandbox.\n"
+        "- notepad: Write/read intermediate notes to avoid forgetting findings during multi-step research. "
+        "  USE to record key numbers, conclusions, or next search queries.\n"
+        "- file_reader: Read local files (.txt, .md, .pdf, .csv, .json, .docx). "
+        "  USE only when the task explicitly references a local file path.\n"
+        "\nIMPORTANT RULES:\n"
+        "1. You MUST use a tool to find factual information. Do NOT answer from your own knowledge.\n"
+        "2. Choose the RIGHT tool based on the task type. You can use MULTIPLE tools in sequence.\n"
+        "3. For most research tasks, START with web_search or arxiv_reader.\n"
+        "4. If search results are too short, use browser to read the full article.\n"
+        "5. If the task involves numbers/calculations, use calculator or code_sandbox.\n"
+        "6. You may call tools AT MOST 2 times total. After that you MUST summarize.\n"
+        "7. Only after gathering information, provide a concise summary with a confidence score (0-1).\n"
+        "8. NEVER greet the user or ask what they want to search — just execute immediately.\n"
+        "9. If you have already performed 2 tool calls, do NOT call more — write the final summary now."
+    )
+
+    SYSTEM_PROMPT_DIRECT_ANALYSIS = (
+        "You are a thoughtful analyst. "
+        "The user has asked a question that cannot be answered by web search "
+        "(e.g., analyzing a specific private individual, personal advice, or subjective judgment). "
+        "Your job is to provide a reasoned analysis based ONLY on the information already provided in the context. "
+        "Do NOT make up facts. Clearly state what is known, what can be reasonably inferred, and what remains unknown. "
+        "End with a confidence score (0-1)."
+    )

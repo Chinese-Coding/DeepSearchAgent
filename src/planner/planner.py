@@ -151,6 +151,7 @@ class Planner:
         content = response.get("content", "") or ""
         self._last_raw_json = content
         # 估算 planning token 消耗
+        # `/3` 是一个粗略的经验值，假设平均每 3 个字符约等于 1 个 token
         self.budget_tracker.track(len(content) // 3)
 
         return self._parse_plan(content)
@@ -278,6 +279,7 @@ class Planner:
         try:
             data = json.loads(raw)
         except json.JSONDecodeError as e:
+            # todo: 如果解析失败, 是否会会把这次结果给保存下来呢?
             # 最后尝试：逐行修复（去掉注释）
             cleaned_lines = []
             for line in raw.splitlines():
@@ -346,6 +348,7 @@ class Planner:
 
         通常在 generate_plan 后由编排器调用。
         """
+        # todo: 既然是复用, 有没有可能写成一个函数呢?
         # 复用 _parse_plan 中的解析逻辑，但返回映射
         # 这里重新解析 raw_json 以获取完整 SubTask 信息
         raw = raw_json.strip()

@@ -64,10 +64,7 @@ class LLMSummarizer:
         self.llm_policy = llm_policy
 
     def summarize_document(
-        self,
-        doc: str,
-        query: str = "",
-        max_length: int = 500,
+        self, doc: str, query: str = "", max_length: int = 500
     ) -> str:
         """
         单文档摘要。

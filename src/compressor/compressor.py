@@ -168,17 +168,17 @@ class ContextCompressor:
         return compressed
 
     def _l1_filter(
-        self,
-        texts: list[str],
-        query: str,
-        budget: int,
+        self, texts: list[str], query: str, budget: int
     ) -> list[str]:
         """
+        L1 会用当前提问筛选已有的背景资料。它给每条候选文本打一个相关性分数 (注意只取前 1000 个字符)，
+        达到门槛的整条保留，低于门槛的整条丢掉。通常可以保留多条，只有一条都没过线时，才保底保留最相近的一条。
+
         L1 相关性过滤：embedding cosine similarity 评分，自适应阈值。
 
         策略：
         - 计算每段文本与 query 的相似度
-        - 初始阈值 0.25，若过滤后仍然超 budget，逐步降低到 0.15
+        - 初始阈值 0.15，若过滤后仍超过预算的 80%，逐步提高到 0.25
         - 保留相似度 >= 阈值的文本
         """
         if not query or not query.strip():
@@ -190,21 +190,18 @@ class ContextCompressor:
 
         scored: list[tuple[str, float]] = []
         for text in texts:
+            # todo: 只取前 1000 个字符真的可靠吗? 
             text_emb = self.embedder.encode(text[:1000])  # 只取前 1000 字符加速
             text_vec = self._to_norm_vec(text_emb)
             sim = float(query_vec.dot(text_vec)) if text_vec is not None else 0.0
             scored.append((text, sim))
 
-        # 自适应阈值：从 0.25 开始，若不够严格则递减
+        # 预算不足时提高阈值，滤掉更多低相关性的文本
         best_result: list[str] = []
-        for threshold in [0.25, 0.20, 0.15]:
-            filtered = [t for t, s in scored if s >= threshold]
-            tokens = self.calculate_tokens(filtered)
-            if tokens <= budget * 0.8:
-                best_result = filtered
+        for threshold in [0.15, 0.20, 0.25]:
+            best_result = [t for t, s in scored if s >= threshold]
+            if self.calculate_tokens(best_result) <= budget * 0.8:
                 break
-            if threshold == 0.15:
-                best_result = filtered
 
         # 保底策略：若过滤后为空但原始有内容，至少保留相似度最高的 1 篇
         if not best_result and texts:
@@ -218,10 +215,7 @@ class ContextCompressor:
         return best_result
 
     def _l2_extract(
-        self,
-        texts: list[str],
-        query: str,
-        budget: int,
+        self, texts: list[str], query: str, budget: int
     ) -> list[str]:
         """
         L2 关键句提取：TextRank + query-biased，动态保留比例。
@@ -236,6 +230,7 @@ class ContextCompressor:
 
         compressed = []
         for text in texts:
+            # 对文章里面的句子进行挑选, 最后汇总起来
             comp = self.extractive.compress(text, query, target_ratio=target_ratio)
             compressed.append(comp)
 
@@ -247,16 +242,13 @@ class ContextCompressor:
         return compressed
 
     def _l3_summarize(
-        self,
-        texts: list[str],
-        query: str,
-        budget: int,
+        self, texts: list[str], query: str, budget: int
     ) -> list[str]:
         """
         L3 层级摘要：逐文档摘要 → 聚合摘要。
 
         策略：
-        - 先对每篇文档做单文档摘要（控制长度）
+        - 先对每篇文档做单文档摘要（控制长度）(不对啊, 这实际上是对从文章里面挑出来的句子进行 summary 啊)
         - 再将所有摘要聚合为一段综述
         - 最终返回单元素列表（聚合结果）
         """
@@ -313,9 +305,7 @@ class ContextCompressor:
         self._stats_history.append(stats)
 
     def _estimate_retention(
-        self,
-        original: list[str],
-        compressed: list[str],
+        self, original: list[str], compressed: list[str],
     ) -> float:
         """
         估算信息保留率。

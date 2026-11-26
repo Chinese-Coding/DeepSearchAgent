@@ -9,9 +9,7 @@
 """
 from __future__ import annotations
 
-import json
 import re
-from typing import Any
 
 from .base_agent import BaseAgent
 from ..orchestrator.schemas import SubTask, AgentResult, AgentStatus, ResearchReport

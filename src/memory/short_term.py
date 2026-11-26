@@ -46,10 +46,7 @@ class ShortTermMemory:
         self._created_at = time.time()
 
     def add_turn(
-        self,
-        role: str,
-        content: str,
-        metadata: Optional[dict[str, Any]] = None,
+        self, role: str, content: str, metadata: Optional[dict[str, Any]] = None
     ) -> Turn:
         """
         添加一轮对话。
@@ -73,9 +70,7 @@ class ShortTermMemory:
         return turn
 
     def get_history(
-        self,
-        roles: Optional[list[str]] = None,
-        last_n: Optional[int] = None,
+        self, roles: Optional[list[str]] = None, last_n: Optional[int] = None
     ) -> list[Turn]:
         """
         获取对话历史。

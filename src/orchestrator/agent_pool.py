@@ -6,12 +6,9 @@ Agent 生命周期管理 (AgentPool)
 """
 from __future__ import annotations
 
-import asyncio
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from ..agents.base_agent import BaseAgent
-    from .schemas import TaskType
+from ..agents.base_agent import BaseAgent
+from .schemas import TaskType
 
 
 __all__ = ["AgentPool"]
@@ -33,10 +30,7 @@ class AgentPool:
     """
 
     def __init__(
-        self,
-        policy_factory,
-        tools_factory=None,
-        max_idle: int = 3,
+        self, policy_factory, tools_factory=None, max_idle: int = 3
     ) -> None:
         self.policy_factory = policy_factory
         self.tools_factory = tools_factory
@@ -55,7 +49,7 @@ class AgentPool:
     # 核心 API
     # ------------------------------------------------------------------
 
-    async def get_agent(self, task_type: "TaskType") -> BaseAgent:
+    async def get_agent(self, task_type: TaskType) -> BaseAgent:
         """根据任务类型获取可用的 Agent 实例。
 
         优先从池中复用，无空闲则新建。
@@ -134,17 +128,18 @@ class AgentPool:
         from ..agents.summarizer import SummarizerAgent
         from .schemas import TaskType
 
-        if type_key == TaskType.SEARCH.value:
-            return ResearcherAgent(name=f"researcher_{type_key}", policy=policy, tools=tools)
-        elif type_key == TaskType.ANALYZE.value:
-            return ResearcherAgent(name=f"analyzer_{type_key}", policy=policy, tools=tools)
-        elif type_key == TaskType.VERIFY.value:
-            return ResearcherAgent(name=f"verifier_{type_key}", policy=policy, tools=tools)
-        elif type_key == "synthesize":
-            return SummarizerAgent(name="summarizer", policy=policy, tools=tools)
-        else:
-            # 默认降级为 Researcher
-            return ResearcherAgent(name=f"researcher_default", policy=policy, tools=tools)
+        match type_key:
+            case TaskType.SEARCH.value:
+                return ResearcherAgent(name=f"researcher_{type_key}", policy=policy, tools=tools)
+            case TaskType.ANALYZE.value:
+                return ResearcherAgent(name=f"analyzer_{type_key}", policy=policy, tools=tools)
+            case TaskType.VERIFY.value:
+                return ResearcherAgent(name=f"verifier_{type_key}", policy=policy, tools=tools)
+            case "synthesize":
+                return SummarizerAgent(name="summarizer", policy=policy, tools=tools)
+            case _:
+                # 默认降级为 Researcher
+                return ResearcherAgent(name="researcher_default", policy=policy, tools=tools)
 
     def _infer_type_key(self, agent: "BaseAgent") -> str:
         """从 Agent 实例推断其类型键。"""

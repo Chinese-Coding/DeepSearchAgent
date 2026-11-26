@@ -185,6 +185,7 @@ class VerdictEngine:
     """
 
     # 五维度权重（与项目计划一致）
+    # 他这么定有什么科学依据吗?
     DIMENSION_WEIGHTS: dict[Dimension, float] = {
         Dimension.FACTUAL: 0.30,
         Dimension.HALLUCINATION: 0.25,
@@ -231,9 +232,7 @@ class VerdictEngine:
 
     @classmethod
     def compute_delta(
-        cls,
-        prev: dict[Dimension, float],
-        curr: dict[Dimension, float],
+        cls, prev: dict[Dimension, float], curr: dict[Dimension, float]
     ) -> float:
         """计算两轮间的分数变化量 Δ（欧氏距离）。
 

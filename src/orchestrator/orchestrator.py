@@ -146,7 +146,7 @@ class Orchestrator:
         # 返回结果
         if self._current_state == OrchestratorState.DONE:
             # 最终报告应在 memory 中
-            report = self._memory_store.get("final_report")
+            report: ResearchReport | None = self._memory_store.get("final_report")
             if report is None:
                 report = ResearchReport(query=query, content="Report generation failed unexpectedly.")
             report.num_replan = self._replan_count
@@ -218,9 +218,11 @@ class Orchestrator:
         n_tasks = len(self._dag)
         n_layers = len(self._dag.get_parallel_groups()) if self._dag else 0
         print(f"[Planning] ✓ DAG 生成完成: {n_tasks} 个子任务, {n_layers} 个执行层")
+
         # 打印子任务描述以便诊断
         for tid, task in self._task_map.items():
             print(f"[Planning]   {tid}: {task.description}")
+
         return OrchestratorState.DISPATCHING
 
     async def _do_dispatching(self) -> OrchestratorState:
@@ -236,6 +238,7 @@ class Orchestrator:
             return OrchestratorState.COLLECTING
 
         semaphore = asyncio.Semaphore(self._config.max_concurrent)
+        # todo: planning 层已经算了一遍了, 这里再算一遍合适吗?
         parallel_groups = self._dag.get_parallel_groups()
         all_results: list[AgentResult] = []
 
@@ -589,6 +592,7 @@ class Orchestrator:
 
     def _build_task_context(self, subtask: SubTask) -> dict:
         """为单个 SubTask 构建执行上下文。"""
+        # 复制一份新的 dict 出来
         ctx = dict(self._memory_store)
         ctx["query"] = self._query
         # 注入依赖任务的结果

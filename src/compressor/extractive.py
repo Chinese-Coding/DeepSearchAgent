@@ -35,6 +35,7 @@ _HIGH_VALUE_PATTERN = re.compile(
 
 def _tokenize_sentences(text: str) -> list[str]:
     """将文本分句，过滤过短句子。"""
+    # todo: 过滤短句子的话会不会把一些重要的信息也一并过滤掉呢?
     raw = _SENTENCE_PATTERN.findall(text)
     sentences = [s.strip() for s in raw if len(s.strip()) > 8]
     return sentences
@@ -54,6 +55,7 @@ def _cosine_similarity_matrix(vectors: np.ndarray) -> np.ndarray:
     norms = np.linalg.norm(vectors, axis=1, keepdims=True)
     norms[norms < 1e-9] = 1.0
     normalized = vectors / norms
+
     return normalized.dot(normalized.T)
 
 
@@ -70,8 +72,8 @@ def _textrank_scores(sim_matrix: np.ndarray, damping: float = 0.85, max_iter: in
     Returns:
         每个句子的 TextRank 得分
     """
-    n = sim_matrix.shape[0]
-    if n == 0:
+    sentence_num = sim_matrix.shape[0]
+    if sentence_num == 0:
         return np.array([])
 
     # 将相似度矩阵转为转移概率矩阵（行归一化）
@@ -79,12 +81,17 @@ def _textrank_scores(sim_matrix: np.ndarray, damping: float = 0.85, max_iter: in
     adj = sim_matrix.copy()
     adj[adj < 0.1] = 0.0
     row_sums = adj.sum(axis=1, keepdims=True)
-    row_sums[row_sums < 1e-9] = 1.0
+    row_sums[row_sums < 1e-9] = 1.0 # 防止除零
+    # transition[i, j] 就是第 i 个句子把自己当前得分的多少比例分给第 j 个句子。 行表示谁给分，列表示谁收分。
     transition = adj / row_sums
 
-    scores = np.ones(n) / n
+    # 每句话的起始分相同，总分是 1
+    scores = np.ones(sentence_num) / sentence_num
     for _ in range(max_iter):
-        new_scores = (1 - damping) / n + damping * transition.T.dot(scores)
+        # 新得分 = 0.15 / 句子数 + 0.85 × 收到的票数 + 
+        new_scores = (1 - damping) / sentence_num + damping * transition.T.dot(scores)
+        # 分数趋于稳定
+        # 每轮算出 new_scores 后，计算新旧两组分数的欧氏距离。距离小于 1e-4（0.0001）就 break
         if np.linalg.norm(new_scores - scores) < tol:
             break
         scores = new_scores
@@ -106,10 +113,7 @@ class ExtractiveCompressor:
         self.embedder = embedder or Embedder()
 
     def compress(
-        self,
-        text: str,
-        query: str,
-        target_ratio: float = 0.3,
+        self, text: str, query: str, target_ratio: float = 0.3
     ) -> str:
         """
         对单段文本执行提取式压缩。
@@ -133,10 +137,7 @@ class ExtractiveCompressor:
         return " ".join(top_sents)
 
     def textrank_sentences(
-        self,
-        sentences: list[str],
-        query: str,
-        top_ratio: float = 0.3,
+        self, sentences: list[str], query: str, top_ratio: float = 0.3
     ) -> list[str]:
         """
         TextRank + query-biased 提取关键句，返回按原文顺序排列的句子列表。
@@ -175,10 +176,11 @@ class ExtractiveCompressor:
         query_sims = normalized_emb.dot(query_emb)
 
         # 4. 高价值句子 bonus
-        value_bonus = np.array([
-            1.2 if _HIGH_VALUE_PATTERN.search(s) else 1.0
-            for s in sentences
-        ], dtype=np.float32)
+        # 就是给含有数字、引用或结论提示词的句子一个 1.2 倍的分数系数。
+        value_bonus = np.array(
+            [1.2 if _HIGH_VALUE_PATTERN.search(s) else 1.0  for s in sentences],
+            dtype=np.float32
+        )
 
         # 5. 融合得分 = TextRank * query_sim * value_bonus
         combined = textrank * query_sims * value_bonus

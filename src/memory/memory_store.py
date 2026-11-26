@@ -15,7 +15,6 @@ from __future__ import annotations
 import logging
 import re
 import threading
-import time
 import uuid
 from typing import Any, Optional
 
@@ -120,7 +119,7 @@ class SharedMemoryStore:
             embedder: 向量化器，None 时自动创建
             session_id: 会话 ID，空字符串表示加载所有历史数据（不隔离）
         """
-        self.lt = LongTermMemory(db_path=db_path)
+        self.long_term_mem = LongTermMemory(db_path=db_path)
         self.embedder = embedder or Embedder()
         self._lock = threading.RLock()
         self.session_id = session_id
@@ -139,13 +138,15 @@ class SharedMemoryStore:
 
     def _rebuild_index(self) -> None:
         """从 SQLite 重建内存向量索引。若指定了 session_id，只加载该会话数据。"""
-        entries = self.lt.get_all_entries(session_id=self.session_id or None)
+        # todo: 如果一次性全放在内训里面, 内存装得下吗? 
+        entries = self.long_term_mem.get_all_entries(session_id=self.session_id or None)
         with self._lock:
             self._entry_ids = [e.entry_id for e in entries]
             self._entries_cache = {e.entry_id: e for e in entries}
             if entries:
                 mat = np.array([e.embedding for e in entries], dtype=np.float32)
                 # 归一化（防御性）
+                # todo: 这东西莫不成是 GPT 写的? 怎么到处都能看见 "防御性" 这三个字
                 norms = np.linalg.norm(mat, axis=1, keepdims=True)
                 norms[norms < 1e-9] = 1.0
                 self._embeddings = mat / norms
@@ -237,12 +238,12 @@ class SharedMemoryStore:
         # 去重检测
         duplicate_id = self._find_duplicate(entry)
         if duplicate_id:
-            existing = self.lt.get_entry(duplicate_id)
+            existing = self.long_term_mem.get_entry(duplicate_id)
             if existing and entry.confidence > existing.confidence:
                 # 用新 entry 更新，但保留旧 ID
                 entry.entry_id = duplicate_id
                 entry.timestamp = max(entry.timestamp, existing.timestamp)
-                self.lt.insert_entry(entry)
+                self.long_term_mem.insert_entry(entry)
                 self._remove_from_index(duplicate_id)
                 self._add_to_index(entry)
                 logger.info(f"Merged entry {duplicate_id} with higher confidence.")
@@ -252,7 +253,7 @@ class SharedMemoryStore:
 
         # 写入 session_id 并持久化
         entry.session_id = self.session_id
-        self.lt.insert_entry(entry)
+        self.long_term_mem.insert_entry(entry)
         self._add_to_index(entry)
 
         # 矛盾检测（与新 entry 比较）
@@ -318,7 +319,7 @@ class SharedMemoryStore:
                         similarity=float(sim),
                         status="open",
                     )
-                    self.lt.insert_conflict(conflict)
+                    self.long_term_mem.insert_conflict(conflict)
                     logger.info(
                         f"Conflict detected between {existing.entry_id} and {new_entry.entry_id}: "
                         f"sim={sim:.3f}"
@@ -341,11 +342,13 @@ class SharedMemoryStore:
         """
         if self._embeddings.shape[0] == 0:
             return []
+        # 经典的 encode, 归一化
         q_vec = np.array(self.embedder.encode(query), dtype=np.float32)
         norm = float(np.linalg.norm(q_vec))
         if norm < 1e-9:
             return []
         q_vec = q_vec / norm
+
         with self._lock:
             sims = self._embeddings.dot(q_vec)
         top_indices = np.argsort(sims)[::-1][:top_k]
@@ -370,7 +373,7 @@ class SharedMemoryStore:
         Returns:
             该 topic 下的所有 entries
         """
-        return self.lt.query_by_topic(topic)
+        return self.long_term_mem.query_by_topic(topic)
 
     def get_conflicts(self, status: Optional[str] = None) -> list[ConflictRecord]:
         """
@@ -382,7 +385,7 @@ class SharedMemoryStore:
         Returns:
             ConflictRecord 列表
         """
-        return self.lt.get_conflicts(status=status)
+        return self.long_term_mem.get_conflicts(status=status)
 
     def resolve_conflict(
         self,
@@ -406,7 +409,7 @@ class SharedMemoryStore:
         Returns:
             胜出的 MemoryEntry，或 None（如果无法消解）
         """
-        conflicts = self.lt.get_conflicts()
+        conflicts = self.long_term_mem.get_conflicts()
         target: Optional[ConflictRecord] = None
         for c in conflicts:
             if c.conflict_id == conflict_id:
@@ -416,11 +419,11 @@ class SharedMemoryStore:
             logger.warning(f"Conflict {conflict_id} not found.")
             return None
 
-        entry_1 = self.lt.get_entry(target.entry_id_1)
-        entry_2 = self.lt.get_entry(target.entry_id_2)
+        entry_1 = self.long_term_mem.get_entry(target.entry_id_1)
+        entry_2 = self.long_term_mem.get_entry(target.entry_id_2)
         if entry_1 is None or entry_2 is None:
             logger.warning("One or both entries missing, marking dismissed.")
-            self.lt.update_conflict_resolution(conflict_id, "dismissed")
+            self.long_term_mem.update_conflict_resolution(conflict_id, "dismissed")
             return None
 
         winner: Optional[MemoryEntry] = None
@@ -437,7 +440,7 @@ class SharedMemoryStore:
             raise ValueError(f"Unknown strategy: {strategy}")
 
         if winner is not None:
-            self.lt.update_conflict_resolution(
+            self.long_term_mem.update_conflict_resolution(
                 conflict_id, "resolved", resolution=winner.entry_id
             )
             logger.info(f"Conflict {conflict_id} resolved by {strategy}: {winner.entry_id}")
@@ -447,7 +450,7 @@ class SharedMemoryStore:
         self, e1: MemoryEntry, e2: MemoryEntry
     ) -> Optional[MemoryEntry]:
         """同 topic 下统计各 claim 的支持 agent 数，多数胜出。"""
-        topic_entries = self.lt.query_by_topic(e1.topic)
+        topic_entries = self.long_term_mem.query_by_topic(e1.topic)
         count_1 = sum(1 for e in topic_entries if e.claim == e1.claim)
         count_2 = sum(1 for e in topic_entries if e.claim == e2.claim)
         if count_1 >= count_2:
@@ -507,16 +510,16 @@ class SharedMemoryStore:
         Returns:
             实际删除的条目数
         """
-        current_count = self.lt.count_entries(session_id=self.session_id or None)
+        current_count = self.long_term_mem.count_entries(session_id=self.session_id or None)
         if current_count <= max_entries:
             return 0
 
         to_remove = current_count - max_entries
-        low_score_entries = self.lt.get_lowest_score_entries(limit=to_remove, session_id=self.session_id or None)
+        low_score_entries = self.long_term_mem.get_lowest_score_entries(limit=to_remove, session_id=self.session_id or None)
         removed = 0
         for entry_id, score in low_score_entries:
             # 再次确认：如果仍有 open conflict，跳过
-            conflicts = self.lt.get_conflicts(status="open")
+            conflicts = self.long_term_mem.get_conflicts(status="open")
             has_conflict = any(
                 c.entry_id_1 == entry_id or c.entry_id_2 == entry_id
                 for c in conflicts
@@ -524,7 +527,7 @@ class SharedMemoryStore:
             if has_conflict:
                 logger.info(f"Protected entry {entry_id} from eviction (open conflict).")
                 continue
-            if self.lt.delete_entry(entry_id):
+            if self.long_term_mem.delete_entry(entry_id):
                 self._remove_from_index(entry_id)
                 removed += 1
                 logger.info(f"Evicted entry {entry_id} (score={score:.4f}).")
@@ -586,8 +589,8 @@ class SharedMemoryStore:
         return "".join(parts)
 
     def __len__(self) -> int:
-        return self.lt.count_entries(session_id=self.session_id or None)
+        return self.long_term_mem.count_entries(session_id=self.session_id or None)
 
     def list_sessions(self) -> list[dict[str, Any]]:
         """列出数据库中所有 session 及其统计信息。"""
-        return self.lt.get_sessions()
+        return self.long_term_mem.get_sessions()

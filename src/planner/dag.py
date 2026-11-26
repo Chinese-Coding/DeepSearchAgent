@@ -121,6 +121,7 @@ class DAG:
         Returns:
             例如 [["A", "B"], ["C"], ["D"]] 表示 A/B 并行，然后 C，然后 D。
         """
+        # 克隆一个新的 dict 出来
         in_deg = dict(self._in_degree)
         for n in self._nodes:
             in_deg.setdefault(n, 0)
@@ -136,10 +137,10 @@ class DAG:
             visited.update(current)
             next_layer: list[str] = []
             for node in current:
-                for succ in self._edges.get(node, []):
-                    in_deg[succ] -= 1
-                    if in_deg[succ] == 0 and succ not in visited:
-                        next_layer.append(succ)
+                for successor in self._edges.get(node, []):
+                    in_deg[successor] -= 1
+                    if in_deg[successor] == 0 and successor not in visited:
+                        next_layer.append(successor)
             next_layer.sort()
             current = next_layer
 

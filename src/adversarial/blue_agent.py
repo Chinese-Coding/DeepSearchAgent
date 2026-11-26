@@ -14,12 +14,7 @@ import copy
 from typing import Any
 
 from src.adversarial.verdict import (
-    FixOperation,
-    FixType,
-    Issue,
-    RedVerdict,
-    Severity,
-    VerdictEngine,
+    FixOperation, FixType, Issue, RedVerdict, Severity, VerdictEngine
 )
 from src.orchestrator.schemas import ResearchReport
 from src.utils.tracing import trace_agent
@@ -189,7 +184,7 @@ class BlueAgent:
 
         Args:
             report: 原始研究报告（不会被修改，内部深拷贝）。
-            verdict: Red Agent 的审查结果。
+            verdict: Red Agent 的审查结果。# `verdict` 评审结论
 
         Returns:
             (fixed_report, fix_operations)

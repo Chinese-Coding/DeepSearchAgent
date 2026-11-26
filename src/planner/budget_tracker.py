@@ -6,7 +6,7 @@ BudgetTracker 提供显式的 token 使用监控，供编排器决定是否触�
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 __all__ = ["BudgetTracker", "BudgetSnapshot"]

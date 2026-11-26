@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import random
 import xml.etree.ElementTree as ET
 from typing import Any
